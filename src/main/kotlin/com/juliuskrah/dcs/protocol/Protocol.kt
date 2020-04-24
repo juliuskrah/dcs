@@ -5,6 +5,7 @@ import io.netty.buffer.ByteBuf
 import org.reactivestreams.Publisher
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import reactor.core.publisher.Mono
 import reactor.netty.NettyInbound
 import reactor.netty.NettyOutbound
 
@@ -25,8 +26,16 @@ interface Protocol {
                     log.info("Client {} connected on port {}", it.address().hostString, it.address().port)
                 }
                 .receive()
-                .map { buffer ->
-                    process(buffer)
+                .flatMap { buffer ->
+                    try {
+                        process(buffer)
+                    } catch (e: Exception) {
+                        if(log.isDebugEnabled) {
+                            log.error("An uncaught exception occurred", e)
+                        } else
+                            log.error("Unhandled error - {}", e.message)
+                        Mono.error<Any>(e)
+                    }
                 }.flatMap { response ->
                     outbound.sendObject(response).then()
                 }
@@ -35,5 +44,5 @@ interface Protocol {
 
     fun server(): DCServer
 
-    fun process(byteBuf: ByteBuf): Any
+    fun process(byteBuf: ByteBuf): Mono<Any>
 }

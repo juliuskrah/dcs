@@ -5,19 +5,32 @@ import com.juliuskrah.dcs.server.DCServer
 import io.netty.buffer.ByteBuf
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import reactor.core.publisher.Mono
 import java.nio.charset.Charset
 
+/**
+ * The Astra protocol
+ */
 open class AstraProtocol : Protocol {
     private val log: Logger = LoggerFactory.getLogger(AstraProtocol::class.java)
     private val protocolM: Byte = 0x4D
     private val protocolX: Byte = 0x58
     private val commandStart: Byte = 0x24
 
+    /**
+     * Returns the DC Server implementation
+     */
     override fun server(): DCServer {
         return AstraServer()
     }
 
-    override fun process(byteBuf: ByteBuf): Any {
+    /**
+     * Gets the protocol identifier from the first byte and delegates handling to the correct
+     * handler.
+     *
+     * @throws Exception when there's no handler for the protocol handler
+     */
+    override fun process(byteBuf: ByteBuf): Mono<Any> {
         val protocolIdentifier: Byte = byteBuf.getByte(0)
         log.info("Process handler for Astra Protocol {}", protocolIdentifier.toChar())
         var protocol: AstraProtocol? = null
@@ -27,15 +40,80 @@ open class AstraProtocol : Protocol {
             commandStart -> protocol = StringProtocol.AstraCommand()
         }
         protocol = protocol ?: throw Exception("Unknown protocol")
-        return protocol.processing(byteBuf)
+        return Mono.just(protocol.processing(byteBuf))
     }
 
+    /**
+     * The handler for actual implementation of the payload from the device
+     */
     open fun processing(byteBuf: ByteBuf): Any {
         throw UnsupportedOperationException("The implementation should be provided by the subclass")
     }
 
+    /**
+     * Handles binary implementation for the astra protocol
+     */
     abstract class BinaryProtocol : AstraProtocol() {
+        /**
+         *  Lookup table required for checksum generation
+         */
+        private val laCrc16LookUpTable = intArrayOf(0x0000, 0xC0C1, 0xC181, 0x0140, 0xC301, 0x03C0, 0x0280, 0xC241,
+                0xC601, 0x06C0, 0x0780, 0xC741, 0x0500, 0xC5C1, 0xC481, 0x0440, 0xCC01, 0x0CC0, 0x0D80, 0xCD41, 0x0F00,
+                0xCFC1, 0xCE81, 0x0E40, 0x0A00, 0xCAC1, 0xCB81, 0x0B40, 0xC901, 0x09C0, 0x0880, 0xC841, 0xD801, 0x18C0,
+                0x1980, 0xD941, 0x1B00, 0xDBC1, 0xDA81, 0x1A40, 0x1E00, 0xDEC1, 0xDF81, 0x1F40, 0xDD01, 0x1DC0, 0x1C80,
+                0xDC41, 0x1400, 0xD4C1, 0xD581, 0x1540, 0xD701, 0x17C0, 0x1680, 0xD641, 0xD201, 0x12C0, 0x1380, 0xD341,
+                0x1100, 0xD1C1, 0xD081, 0x1040, 0xF001, 0x30C0, 0x3180, 0xF141, 0x3300, 0xF3C1, 0xF281, 0x3240, 0x3600,
+                0xF6C1, 0xF781, 0x3740, 0xF501, 0x35C0, 0x3480, 0xF441, 0x3C00, 0xFCC1, 0xFD81, 0x3D40, 0xFF01, 0x3FC0,
+                0x3E80, 0xFE41, 0xFA01, 0x3AC0, 0x3B80, 0xFB41, 0x3900, 0xF9C1, 0xF881, 0x3840, 0x2800, 0xE8C1, 0xE981,
+                0x2940, 0xEB01, 0x2BC0, 0x2A80, 0xEA41, 0xEE01, 0x2EC0, 0x2F80, 0xEF41, 0x2D00, 0xEDC1, 0xEC81, 0x2C40,
+                0xE401, 0x24C0, 0x2580, 0xE541, 0x2700, 0xE7C1, 0xE681, 0x2640, 0x2200, 0xE2C1, 0xE381, 0x2340, 0xE101,
+                0x21C0, 0x2080, 0xE041, 0xA001, 0x60C0, 0x6180, 0xA141, 0x6300, 0xA3C1, 0xA281, 0x6240, 0x6600, 0xA6C1,
+                0xA781, 0x6740, 0xA501, 0x65C0, 0x6480, 0xA441, 0x6C00, 0xACC1, 0xAD81, 0x6D40, 0xAF01, 0x6FC0, 0x6E80,
+                0xAE41, 0xAA01, 0x6AC0, 0x6B80, 0xAB41, 0x6900, 0xA9C1, 0xA881, 0x6840, 0x7800, 0xB8C1, 0xB981, 0x7940,
+                0xBB01, 0x7BC0, 0x7A80, 0xBA41, 0xBE01, 0x7EC0, 0x7F80, 0xBF41, 0x7D00, 0xBDC1, 0xBC81, 0x7C40, 0xB401,
+                0x74C0, 0x7580, 0xB541, 0x7700, 0xB7C1, 0xB681, 0x7640, 0x7200, 0xB2C1, 0xB381, 0x7340, 0xB101, 0x71C0,
+                0x7080, 0xB041, 0x5000, 0x90C1, 0x9181, 0x5140, 0x9301, 0x53C0, 0x5280, 0x9241, 0x9601, 0x56C0, 0x5780,
+                0x9741, 0x5500, 0x95C1, 0x9481, 0x5440, 0x9C01, 0x5CC0, 0x5D80, 0x9D41, 0x5F00, 0x9FC1, 0x9E81, 0x5E40,
+                0x5A00, 0x9AC1, 0x9B81, 0x5B40, 0x9901, 0x59C0, 0x5880, 0x9841, 0x8801, 0x48C0, 0x4980, 0x8941, 0x4B00,
+                0x8BC1, 0x8A81, 0x4A40, 0x4E00, 0x8EC1, 0x8F81, 0x4F40, 0x8D01, 0x4DC0, 0x4C80, 0x8C41, 0x4400, 0x84C1,
+                0x8581, 0x4540, 0x8701, 0x47C0, 0x4680, 0x8641, 0x8201, 0x42C0, 0x4380, 0x8341, 0x4100, 0x81C1, 0x8081,
+                0x4040)
+
+        /**
+         * Generates a checksum for the received payload
+         */
+        private fun @ExtensionFunctionType ByteArray.generateCheckSum(): Int {
+            val packetLength = this.size
+            val bytePacketDatum = this
+            // Cyclic Redundancy Check
+            var llcrc = 0xFFFF
+            var llChar: Int
+
+            var lnPos = 0
+            while (lnPos < packetLength - 2) {
+                llChar = (llcrc xor bytePacketDatum[lnPos].toInt()) and 0x00ff
+                llChar = laCrc16LookUpTable[llChar]
+                llcrc = (llcrc shr 8) xor llChar
+                lnPos++
+            }
+
+            return llcrc
+        }
+
         override fun processing(byteBuf: ByteBuf): Any {
+            val bytes: ByteArray
+            val length = byteBuf.readableBytes()
+            if (byteBuf.hasArray())
+                bytes = byteBuf.array()
+            else {
+                bytes = ByteArray(length)
+                byteBuf.getBytes(byteBuf.readerIndex(), bytes)
+            }
+            val packetChecksum = byteBuf.getUnsignedShort(bytes.size - 2)
+            val checkSum: Int = bytes.generateCheckSum()
+            if (checkSum != packetChecksum)
+                throw Exception("Calculated checksum: $checkSum does not match packet checksum: $packetChecksum, aborting...")
+            byteBuf.readByte() // protocol
             return parseProtocol(byteBuf)
         }
 
@@ -43,22 +121,28 @@ open class AstraProtocol : Protocol {
 
         class MProtocol : BinaryProtocol() {
             private val log: Logger = LoggerFactory.getLogger(MProtocol::class.java)
-            override fun parseProtocol(byteBuf: ByteBuf): ByteArray {
-                log.info("M Protocol parse")
-                return ByteArray(0x06)
-            }
+            private val statusIgnitionOn = 0x01
+            private val protocolMBasicLength = 41
+            private val protocolMStartStopLength = 53
 
+            override fun parseProtocol(byteBuf: ByteBuf): ByteArray {
+                log.info("Parsing protocol M...")
+                return byteArrayOf(0x07) // TODO return 0x06
+            }
         }
 
         class XProtocol : BinaryProtocol() {
             private val log: Logger = LoggerFactory.getLogger(XProtocol::class.java)
             override fun parseProtocol(byteBuf: ByteBuf): ByteArray {
-                log.info("X Protocol parse")
-                return ByteArray(0x06)
+                log.info("Parsing protocol X...")
+                return byteArrayOf(0x06)
             }
         }
     }
 
+    /**
+     * Handles string implementations for the
+     */
     abstract class StringProtocol : AstraProtocol() {
         override fun processing(byteBuf: ByteBuf): Any {
             val command = byteBuf.toString(Charset.defaultCharset())
@@ -70,8 +154,9 @@ open class AstraProtocol : Protocol {
         class AstraCommand : StringProtocol() {
             private val log: Logger = LoggerFactory.getLogger(AstraCommand::class.java)
             override fun parseProtocol(command: String): String {
-                log.info("Astra command parse: {}", command)
-                return "ByteArray(0x06)"
+                log.info("Command: {}", command)
+                log.info("last line \n-------")
+                return "ByteArray(0x06)" // TODO return command
             }
         }
     }
