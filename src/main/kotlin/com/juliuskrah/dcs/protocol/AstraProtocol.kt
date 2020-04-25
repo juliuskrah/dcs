@@ -180,11 +180,12 @@ open class AstraProtocol : Protocol {
             private val protocolMBasicLength = 41
             private val protocolMStartStopLength = 53
             private val commands = mapOf(
-                    1 to "\$TEST,1",
-                    2 to "\$PARA,1",
-                    3 to "\$POLL",
-                    4 to "\$POSN,k,20",
-                    5 to "\$IMEI"
+                    1 to "\$TEST,1\r\n",
+                    2 to "\$PARA,1\r\n",
+                    3 to "\$POLL\r\n",
+                    4 to "\$POSN,k,20\r\n",
+                    // 5 to "\$IMEI\n",
+                    5 to "\$PORT,31080\r\n"
             )
 
             override fun parseProtocol(byteBuf: ByteBuf): ByteArray {
@@ -279,8 +280,8 @@ open class AstraProtocol : Protocol {
                         protocolMStartStopLength
                     else protocolMBasicLength
                     // TODO status code and hex
-                    // var journeyStart = if (reportReason and reasonJourneyStart > 0) 1 else 0
-                    // var journeyStop = if (reportReason and reasonJourneyStop > 0) 1 else 0
+                    val journeyStart = if (reportReason and reasonJourneyStart > 0) 1 else 0
+                    val journeyStop = if (reportReason and reasonJourneyStop > 0) 1 else 0
 
                     val sb = StringBuilder()
                     val rawData: String = sb.append("R=").append(reportReason.toHexString(24)) //
@@ -302,16 +303,16 @@ open class AstraProtocol : Protocol {
                     log.info("IMEI number: \t\t{}", imei)
                     log.info("Report length: \t\t{}", reportLength)
                     log.info("Latitude: \t\t\t{}", latitude)
-                    log.info("Longitude: \t\t{}", longitude)
+                    log.info("Longitude: \t\t\t{}", longitude)
                     log.info("Event time: \t\t{}", time)
                     log.info("Speed: \t\t\t{}km/h", speed)
-                    log.info("Max speed: \t\t{}km/h", maxSpeed)
+                    log.info("Max speed: \t\t\t{}km/h", maxSpeed)
                     log.info("Heading: \t\t\t{}°", heading)
                     log.info("ADC 1: \t\t\t{}V", adc1)
                     log.info("ADC 2: \t\t\t{}V", adc2)
                     log.info("Battery level: \t\t{}%", batteryLevel)
                     log.info("External power: \t\t{}V", externalPower)
-                    log.info("Idle time: \t\t{}", Duration.ofSeconds(journeyIdleTime.toLong()))
+                    log.info("Idle time: \t\t\t{}", Duration.ofSeconds(journeyIdleTime.toLong()))
                     log.info("Altitude: \t\t\t{}m", altitude)
                     log.info("Signal quality: \t\t{}", signalQuality)
                     log.info("Signal strength: \t\t{}", signalStrength)
@@ -319,7 +320,9 @@ open class AstraProtocol : Protocol {
                     log.info("Geofence: \t\t\t{}", geoFence)
                     log.info("Odometer: \t\t\t{}km", odometer)
                     log.info("Engine hours: \t\t{}h", engineOnHours)
-                    log.info("Driver ID: \t\t{}", driverUniqueId)
+                    log.info("Driver ID: \t\t\t{}", driverUniqueId)
+                    log.info("Journey start: \t\t{}", journeyStart)
+                    log.info("Journey stop: \t\t{}", journeyStop)
                     log.info("Raw data: \t\t\t{}", rawData)
 
                     // Check for more reports in the packet
@@ -327,7 +330,7 @@ open class AstraProtocol : Protocol {
                 } while (reportsToFollow && byteBuf.readableBytes() > 2)
                 val random = (1..5).random()
                 val command = commands[random] ?: throw Exception("No command available")
-                log.info("\n----------")
+                log.info("{}\n----------------------------------------------------", command)
                 return command.toByteArray()
                 // return byteArrayOf(0x07) // TODO return 0x06
             }
@@ -355,20 +358,20 @@ open class AstraProtocol : Protocol {
 
         class AstraCommand : StringProtocol() {
             private val commands = mapOf(
-                    1 to "\$TEST,1",
-                    2 to "\$PARA,1",
-                    3 to "\$POLL",
-                    4 to "\$POSN,k,20",
-                    5 to "\$IMEI"
+                    1 to "\$TEST,1\r\n",
+                    2 to "\$PARA,1\r\n",
+                    3 to "\$POLL\r\n",
+                    4 to "\$POSN,k,20\r\n",
+                    5 to "\$IMEI\r\n"
             )
             private val log: Logger = LoggerFactory.getLogger(AstraCommand::class.java)
             override fun parseProtocol(command: String): String {
                 log.info("Command: {}", command)
                 val random = (1..5).random()
-                val command = commands[random] ?: throw Exception("No command available")
-                log.info(command)
+                val commander = commands[random] ?: throw Exception("No command available")
+                log.info(commander)
                 log.info("\n----------")
-                return "\$DRID,APPROVE,01,00000000125408C9" // TODO return drid command
+                return "\$DRID,APPROVE,01,00000000125408C9\r\n" // TODO return drid command
             }
         }
     }
