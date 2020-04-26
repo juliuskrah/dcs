@@ -37,7 +37,11 @@ interface Protocol {
                         Mono.error<Any>(e)
                     }
                 }.flatMap { response ->
-                    outbound.sendObject(response).then()
+                    when (response) {
+                        is ByteArray -> outbound.sendByteArray(Mono.just(response)).then()
+                        is String -> outbound.sendString(Mono.just(response)).then()
+                        else -> outbound.sendObject(Mono.just(response)).then()
+                    }
                 }
                 .then()
     }

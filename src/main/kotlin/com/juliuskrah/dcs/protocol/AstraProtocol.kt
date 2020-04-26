@@ -7,7 +7,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Mono
 import java.lang.String.format
-import java.nio.charset.Charset
+import java.nio.charset.Charset.defaultCharset
 import java.nio.charset.StandardCharsets.UTF_8
 import java.time.Duration
 import java.time.Instant.ofEpochSecond
@@ -21,6 +21,7 @@ open class AstraProtocol : Protocol {
     private val protocolM: Byte = 0x4D
     private val protocolX: Byte = 0x58
     private val commandStart: Byte = 0x24
+    protected val crlf = "\r\n"
 
     /**
      * Returns the DC Server implementation
@@ -179,14 +180,6 @@ open class AstraProtocol : Protocol {
             private val statusIgnitionOn = 0x01
             private val protocolMBasicLength = 41
             private val protocolMStartStopLength = 53
-            private val commands = mapOf(
-                    1 to "\$TEST,1\r\n",
-                    2 to "\$PARA,1\r\n",
-                    3 to "\$POLL\r\n",
-                    4 to "\$POSN,k,20\r\n",
-                    // 5 to "\$IMEI\n",
-                    5 to "\$PORT,31080\r\n"
-            )
 
             override fun parseProtocol(byteBuf: ByteBuf): ByteArray {
                 log.info("Parsing protocol M...")
@@ -328,11 +321,7 @@ open class AstraProtocol : Protocol {
                     // Check for more reports in the packet
                     reportsToFollow = reportStatus and statusReportsToFollow > 0
                 } while (reportsToFollow && byteBuf.readableBytes() > 2)
-                val random = (1..5).random()
-                val command = commands[random] ?: throw Exception("No command available")
-                log.info("{}\n----------------------------------------------------", command)
-                return command.toByteArray()
-                // return byteArrayOf(0x07) // TODO return 0x06
+                return byteArrayOf(0x06)
             }
         }
 
@@ -350,28 +339,74 @@ open class AstraProtocol : Protocol {
      */
     abstract class StringProtocol : AstraProtocol() {
         override fun processing(byteBuf: ByteBuf): Any {
-            val command = byteBuf.toString(Charset.defaultCharset())
+            val command = byteBuf.toString(defaultCharset())
             return parseProtocol(command)
         }
 
-        abstract fun parseProtocol(command: String): String
+        abstract fun parseProtocol(commandString: String): String
 
         class AstraCommand : StringProtocol() {
-            private val commands = mapOf(
-                    1 to "\$TEST,1\r\n",
-                    2 to "\$PARA,1\r\n",
-                    3 to "\$POLL\r\n",
-                    4 to "\$POSN,k,20\r\n",
-                    5 to "\$IMEI\r\n"
-            )
             private val log: Logger = LoggerFactory.getLogger(AstraCommand::class.java)
-            override fun parseProtocol(command: String): String {
-                log.info("Command: {}", command)
-                val random = (1..5).random()
-                val commander = commands[random] ?: throw Exception("No command available")
-                log.info(commander)
-                log.info("\n----------")
-                return "\$DRID,APPROVE,01,00000000125408C9\r\n" // TODO return drid command
+            override fun parseProtocol(commandString: String): String {
+                log.info("Command received: {}", commandString)
+                return when {
+                    commandString.startsWith("\$DRID") -> {
+                        // TODO Driver ID
+                        // $DRID,AT110,CHECK,351777042187300,01,00000000125408C9,01
+                        log.info("drid {}", commandString)
+                        "\$DRID,APPROVE,01,00000000125408C9$crlf"
+                    }
+                    commandString.startsWith("\$PARA") -> {
+                        log.info("para {}", commandString)
+                        // TODO handle Parameter check
+                        /*
+                         * $PARA-TCP
+                         * HW:AT240V8
+                         * FW:7.0.22.0
+                         * CFG-VER:1.1
+                         * GSM:+441234567890
+                         */
+                        byteArrayOf(0x06).toString(defaultCharset())
+                    }
+                    else -> {
+                        /*
+                         * $DIST,OK<CR>
+                         * $APPW,OK<CR>
+                         * $IMEI,123456789012345<CR>
+                         * $FRED,UN<CR><LF>
+                         */
+                        val commands = commandString.lines() // gets response for multiple commands
+                        for (command in commands) {
+                            if (command.startsWith("\$IMEI")) {
+                                // $IMEI,123456789012345
+                                log.info("imei {}", command)
+                                // TODO handle IMEI
+                            } else {
+                                // UN - Unknown Command
+                                // OK - Command Completed Successfully
+                                // ER - Command Failed (Error)
+                                // PR - Password Required
+
+                                // $APPW,OK
+                                when (command.split(',').toTypedArray()[1]) {
+                                    "OK" -> {
+                                        // TODO
+                                    }
+                                    "UN" -> {
+                                        // TODO
+                                    }
+                                    "ER" -> {
+                                        // TODO
+                                    }
+                                    else -> {
+                                        // TODO
+                                    }
+                                }
+                            }
+                        }
+                        byteArrayOf(0x06).toString(defaultCharset())
+                    }
+                }
             }
         }
     }
